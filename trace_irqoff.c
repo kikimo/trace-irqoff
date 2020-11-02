@@ -22,6 +22,7 @@
 #include <linux/stacktrace.h>
 #include <linux/timer.h>
 #include <linux/uaccess.h>
+#include <linux/delay.h>
 #include <linux/version.h>
 #include <asm/irq_regs.h>
 
@@ -61,6 +62,8 @@ static bool trace_enable;
  * Default sampling period is 10000000ns. The minimum value is 1000000ns.
  */
 static u64 sampling_period = 10 * 1000 * 1000UL;
+
+static u64 test_lat_period = 10 * 1000 * 1000UL;
 
 /**
  * How many times should we record the stack trace.
@@ -615,6 +618,35 @@ static ssize_t enable_write(struct file *file, const char __user *buf,
 	return count;
 }
 
+static int test_lat_show(struct seq_file *m, void *ptr)
+{
+    local_bh_disable();
+    mdelay(250);
+    seq_printf(m, "%llums\n", test_lat_period / (1000 * 1000UL));
+    local_bh_enable();
+
+    return 0;
+}
+
+static int test_lat_open(struct inode *inode, struct file *file)
+{
+    return single_open(file, test_lat_show, inode->i_private);
+}
+
+static ssize_t test_lat_write(struct file *file, const char __user *buf,
+                size_t count, loff_t *ppos)
+{
+    return -EINVAL;
+}
+
+static const struct file_operations test_lat_fops = {
+    .open       = test_lat_open,
+    .read       = seq_read,
+    .write      = test_lat_write,
+    .llseek     = seq_lseek,
+    .release    = single_release,
+};
+
 static const struct file_operations enable_fops = {
 	.open		= enable_open,
 	.read		= seq_read,
@@ -689,6 +721,11 @@ static int __init trace_irqoff_init(void)
 
 	if (!proc_create("sampling_period", S_IRUSR | S_IWUSR, parent_dir,
 			 &sampling_period_fops))
+		goto remove_enable;
+
+    // file for latency test
+    if (!proc_create("gen_latency", S_IRUSR | S_IWUSR, parent_dir,
+            &test_lat_fops))
 		goto remove_enable;
 
 	return 0;
